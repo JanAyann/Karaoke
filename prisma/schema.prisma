@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://postgres:Johnianencabo13@localhost:5432/karaoke_db?schema=public&connect_timeout=60"
+}
+
+model User {
+  id          String       @id @default(cuid())
+  nickname    String       @unique
+  avatar      String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  queueItems  QueueItem[]
+  roomMembers RoomMember[]
+}
+
+model Room {
+  id         String       @id @default(cuid())
+  name       String
+  code       String       @unique
+  isActive   Boolean      @default(true)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  queueItems QueueItem[]
+  members    RoomMember[]
+
+  @@index([code])
+}
+
+model RoomMember {
+  id       String   @id @default(cuid())
+  roomId   String
+  userId   String
+  joinedAt DateTime @default(now())
+  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+}
+
+model QueueItem {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  youtubeId String
+  title     String
+  thumbnail String
+  position  Int
+  isPlaying Boolean  @default(false)
+  isPlayed  Boolean  @default(false)
+  votes     Int      @default(0)
+  createdAt DateTime @default(now())
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([position])
+  @@index([isPlaying])
+}
+
+model SongHistory {
+  id        String   @id @default(cuid())
+  roomId    String
+  youtubeId String
+  title     String
+  thumbnail String
+  playedAt  DateTime @default(now())
+
+  @@index([roomId])
+  @@index([playedAt])
+}
