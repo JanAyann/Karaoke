@@ -11,9 +11,3 @@ export default function handler(req: NextApiRequest, res: any) {
   const io = initSocket(res as NextApiResponseWithSocket)
   res.end()
 }
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-}
