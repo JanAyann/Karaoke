@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import { io, Socket } from 'socket.io-client'
 import { Room, QueueItem, Song } from '@/types'
 import { YouTubePlayer } from '@/components/karaoke/YouTubePlayer'
 import { QueueList } from '@/components/karaoke/QueueList'
@@ -11,12 +12,11 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
 import { Copy, Share2, Users, AlertCircle } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
-import { RealtimeChannel } from '@supabase/supabase-js'
 
 export default function RoomPage() {
   const router = useRouter()
   const params = useParams()
+  const [socket, setSocket] = useState<Socket | null>(null)
   const [room, setRoom] = useState<Room | null>(null)
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [currentSong, setCurrentSong] = useState<QueueItem | null>(null)
@@ -27,8 +27,6 @@ export default function RoomPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [queueError, setQueueError] = useState<string | null>(null)
-  const [queueChannel, setQueueChannel] = useState<RealtimeChannel | null>(null)
-  const [memberChannel, setMemberChannel] = useState<RealtimeChannel | null>(null)
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
@@ -67,77 +65,40 @@ export default function RoomPage() {
 
     fetchRoom()
 
-    // Set up Supabase Realtime subscriptions
-    let queueSub: RealtimeChannel | null = null
-    let memberSub: RealtimeChannel | null = null
+    let socketInstance: Socket | null = null
+    try {
+      socketInstance = io()
+      setSocket(socketInstance)
+      socketInstance.emit('join-room', params.code)
 
-    if (room?.id) {
-      // Subscribe to QueueItem changes
-      queueSub = supabase
-        .channel(`queue-${room.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'QueueItem',
-            filter: `roomId=eq.${room.id}`,
-          },
-          (payload) => {
-            console.log('Queue change:', payload)
-            // Refetch queue when changes occur
-            fetch(`/api/rooms?code=${params.code}`)
-              .then(res => res.json())
-              .then(data => {
-                setQueue(data.queueItems || [])
-                setQueueError(null)
-              })
-              .catch(err => console.error('Error refetching queue:', err))
-          }
-        )
-        .subscribe((status) => {
-          console.log('Queue subscription status:', status)
-        })
-      setQueueChannel(queueSub)
+      socketInstance.on('queue-updated', (updatedQueue: QueueItem[]) => {
+        setQueue(updatedQueue)
+        setQueueError(null)
+      })
 
-      // Subscribe to RoomMember changes
-      memberSub = supabase
-        .channel(`members-${room.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'RoomMember',
-            filter: `roomId=eq.${room.id}`,
-          },
-          (payload) => {
-            console.log('Member change:', payload)
-            // Refetch room when members change
-            fetch(`/api/rooms?code=${params.code}`)
-              .then(res => res.json())
-              .then(data => {
-                setRoom(data)
-                setIsHost(data.members?.[0]?.user?.nickname === nickname)
-              })
-              .catch(err => console.error('Error refetching room:', err))
-          }
-        )
-        .subscribe((status) => {
-          console.log('Member subscription status:', status)
-        })
-      setMemberChannel(memberSub)
+      socketInstance.on('song-playing', (song: QueueItem) => {
+        setCurrentSong(song)
+      })
+
+      socketInstance.on('song-skipped', () => {
+        setCurrentSong(null)
+      })
+
+      socketInstance.on('connect_error', (err) => {
+        console.error('Socket connection error:', err)
+        // Don't show error to user - app works without real-time features
+      })
+    } catch (err) {
+      console.error('Socket initialization error:', err)
+      // Don't show error to user - app works without real-time features
     }
 
     return () => {
-      if (queueSub) {
-        supabase.removeChannel(queueSub)
-      }
-      if (memberSub) {
-        supabase.removeChannel(memberSub)
+      if (socketInstance) {
+        socketInstance.disconnect()
       }
     }
-  }, [params.code, nickname, router, room?.id])
+  }, [params.code, nickname, router])
 
   const handleAddToQueue = async (song: Song) => {
     if (!room) {
@@ -167,6 +128,7 @@ export default function RoomPage() {
 
       const updatedQueue = [...queue, data]
       setQueue(updatedQueue)
+      socket?.emit('queue-update', { roomId: room.id, queue: updatedQueue })
     } catch (error) {
       console.error('Error adding to queue:', error)
       setQueueError(error instanceof Error ? error.message : 'Failed to add song to queue')
@@ -175,6 +137,7 @@ export default function RoomPage() {
 
   const handlePlaySong = (item: QueueItem) => {
     setCurrentSong(item)
+    socket?.emit('song-play', { roomId: room?.id, song: item })
   }
 
   const handleRemoveSong = async (item: QueueItem) => {
@@ -192,6 +155,7 @@ export default function RoomPage() {
 
       const updatedQueue = queue.filter((i) => i.id !== item.id)
       setQueue(updatedQueue)
+      socket?.emit('queue-update', { roomId: room?.id, queue: updatedQueue })
     } catch (error) {
       console.error('Error removing song:', error)
       setQueueError(error instanceof Error ? error.message : 'Failed to remove song')
@@ -205,6 +169,7 @@ export default function RoomPage() {
       newQueue.splice(toIndex, 0, movedItem)
 
       setQueue(newQueue)
+      socket?.emit('queue-update', { roomId: room?.id, queue: newQueue })
 
       // Update the order in the database
       for (let i = 0; i < newQueue.length; i++) {
@@ -229,6 +194,7 @@ export default function RoomPage() {
     if (queue.length > 0) {
       const nextSong = queue[0]
       setCurrentSong(nextSong)
+      socket?.emit('song-play', { roomId: room?.id, song: nextSong })
       
       // Remove the played song from queue
       handleRemoveSong(nextSong)
