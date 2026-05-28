@@ -1,12 +1,12 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 
-export default function CreateRoomPage() {
+function CreateRoomContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [roomName, setRoomName] = useState('')
@@ -103,5 +103,12 @@ export default function CreateRoomPage() {
         </div>
       </Card>
     </main>
+  )
+  
+}export default function CreateRoomPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-purple-900 via-gray-900 to-black text-white flex items-center justify-center p-4">Loading...</div>}>
+      <CreateRoomContent />
+    </Suspense>
   )
 }
