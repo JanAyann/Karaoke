@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = "postgresql://postgres:Johnianencabo13@localhost:5432/karaoke_db?schema=public&connect_timeout=60"
+  url      = env("DATABASE_URL")
 }
 
 model User {
